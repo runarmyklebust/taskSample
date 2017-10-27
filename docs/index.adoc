@@ -8,6 +8,8 @@ This is a sample app demonstrating the usage of tasks in Enonic XP.
 When creating apps, one regularly needs a way to kick off a job on the server and either forget about it, or even better - get the status
 task and act accordingly in your fanzy UI. So the task lib enables you to easily allow asynchronous execution of tasks.
 
+The sources for this project can be found at: https://github.com/runarmyklebust/taskSample[github]
+
 
 == Getting started
 
