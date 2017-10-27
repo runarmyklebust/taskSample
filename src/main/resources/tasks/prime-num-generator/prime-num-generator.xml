@@ -1,0 +1,15 @@
+<task>
+  <description>Prime num generator</description>
+  <config>
+    <input type="Long" name="count">
+      <label>Number of primes to find</label>
+      <default>1000</default>
+      <occurrences minimum="1" maximum="1"/>
+    </input>
+    <input type="Long" name="start">
+      <label>Start</label>
+      <default>1</default>
+      <occurrences minimum="1" maximum="1"/>
+    </input>
+  </config>
+</task>

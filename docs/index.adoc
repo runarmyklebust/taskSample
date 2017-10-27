@@ -1,0 +1,279 @@
+= Using tasks in Enonic XP
+
+This is a sample app demonstrating the usage of tasks in Enonic XP.
+
+
+== Introduction
+
+When creating apps, one regularly needs a way to kick off a job on the server and either forget about it, or even better - get the status
+task and act accordingly in your fanzy UI. So the task lib enables you to easily allow asynchronous execution of tasks.
+
+
+== Getting started
+
+To get off to a flying start when creating xp-applications, I use the vanilla-starter, creating a new project named tasksSample:
+
+----
+ ~/Dev/Workspace/xp/home/toolbox/toolbox.sh init-project -n com.enonic.app -d tasksSample -r starter-vanilla -c v1.2.0
+----
+
+This will init an empty xp-apps project with much of the plumbing done, I leave most as is, but I like to review the include-list of libraries
+on the get go. I keep the basic, replaces thymeleaf with mustache for rendering, and obviously I will need the task-lib:
+
+[source,groovy]
+----
+dependencies {
+    testCompile 'junit:junit:4.12'
+    compile "com.enonic.xp:core-api:${xpVersion}"
+    compile "com.enonic.xp:portal-api:${xpVersion}"
+    include "com.enonic.xp:lib-content:${xpVersion}"
+    include "com.enonic.xp:lib-portal:${xpVersion}"
+    include "com.enonic.xp:lib-mustache:${xpVersion}"
+    include "com.enonic.xp:lib-task:${xpVersion}"
+}
+----
+
+Now, build the thing and lets start writing some code.
+
+== The task lib
+
+The task-lib is documented http://repo.enonic.com/public/com/enonic/xp/docs/6.12.1/docs-6.12.1-libdoc.zip!/module-task.html[here]
+
+There are two kinds of tasks made available in the task-lib; named tasks and given tasks.
+
+* *Named* tasks are defined in a folder ``tasks`` in your application, with a controller and a description: e.g
+** ``tasks/myTasks/myTasks.xml``
+** ``tasks/myTasks/myTasks.js``
+
+* *Given* tasks are defined as you submit them, e.g
+
+[source,javascript]
+----
+var taskId = taskLib.submit({
+    description: 'Background task',
+    task: function () {
+        // Doing stuff
+    }
+});
+----
+
+== Our task
+
+Out sample tasks isn't the most useful task ever created, but serves the purpose well enough; it will create a given number of prime-numbers.
+I have even heard about people getting rich by doing this seemingly pointless task.
+
+=== The app
+
+I create a simple admin-application to facilitate starting the task and showing the status and result.
+
+
+----
+taskSample
+ |- src
+    |- resources
+       |- admin
+          |- tools
+              |- taskSample
+                  |- taskSample.xml
+                  |- taskSample.js
+                  |- taskSample.html
+----
+
+At the moment, I just add a simple html-template, a controller doing little more than importing some libs, rendering and returning the view:
+
+.taskSample.js
+[source,javascript]
+----
+var mustache = require('/lib/xp/mustache');
+var taskLib = require('/lib/xp/task');
+
+exports.get = function (req) {
+    var view = resolve('taskSample.html');
+
+    var model = {
+        assetsUrl: portal.assetUrl({path: ""})
+    };
+
+    return {
+        contentType: 'text/html',
+        body: mustache.render(view, model)
+    };
+};
+----
+
+I add the assetsUrl to the model, making including js and css simple. I know i want to use the task-lib, so I also import that.
+
+So from the tool, I want to be able to
+
+* Show if task is running or not
+* If task is running, display the current progress
+* If task is not running, start it - possibly with some configuration injected
+
+I create a simple view with some placeholders, just waiting to be filled with juicy task-stuff.
+
+
+=== The task
+
+I create the files for my task "prime-num-generator" and put it in the tasks-folder in my project.
+
+----
+taskSample
+ |- src
+    |- resources
+       |- tasks
+          |- prime-num-generator
+             |- prime-num-generator.xml
+             |- prime-num-generator.js
+
+----
+
+I want to be able to select the number of prime-numbers to generate, and where to start, so I add some inputs to the task-descriptor for setting these
+in the prime-num-generator.xml:
+
+.prime-num-generator.xml
+[source, xml]
+----
+<task>
+  <description>Prime num generator</description>
+  <config>
+    <input type="Long" name="count">
+      <label>Number of primes to find</label>
+      <default>1000</default>
+      <occurrences minimum="1" maximum="1"/>
+    </input>
+    <input type="Long" name="start">
+      <label>Start</label>
+      <default>1</default>
+      <occurrences minimum="1" maximum="1"/>
+    </input>
+  </config>
+</task>
+----
+
+
+The task itself it just a matter of calculating if a number is a prime or not, lets keep it simple.
+
+.prime-num-generator.js
+[source,javascript]
+----
+exports.run = function (params) {
+    var limit = params.count;
+    var i = params.start;
+    var found = [];
+
+    taskLib.progress({info: 'Initializing task'});
+    while (true) {
+        if (isPrime(i)) {
+            found.push(i);
+            taskLib.progress({
+                info: 'Found' + found.length + ' primes',
+                current: found.length,
+                total: limit
+            });
+        }
+        i++;
+        if (found.length >= limit) {
+            break;
+        }
+    }
+    taskLib.progress({info: 'Task completed: ' + found});
+    log.info("Found primes: " + found);
+};
+----
+
+To trigger the task from my taskSample-application, I add this to the taskSample.js-controller:
+
+[source,javascript]
+----
+ var isRunning = taskLib.isRunning('prime-num-generator');
+ if (!isRunning) {
+         taskLib.submitNamed({
+             name: 'prime-num-generator',
+             config: {
+                 count: 100,
+                 start: 921231
+             }
+   });
+ }
+----
+
+Just checking if the task is already running, if not - start it.
+
+
+=== Monitoring the task - A status service
+
+Ok, so far we have an application starting up a task where a number of prime-numbers are calculated. Now, we need to monitor the task and see what happens:
+
+We dont want to reload the page, so we include jQuery and creates a service that can be invoked with ajax to get the current running task status:
+
+----
+taskSample
+ |- src
+    |- resources
+       |- services
+          |- task-status-service
+             |- task-status-service.js
+----
+
+This service will react to get-requests, checking if the named task is running, and return the status.
+
+With the service in place, we need to kick off client-side javascript to invoke this service and populate the progress-status on the page.
+To get this up and running, we need some elements in place:
+
+* An app javascript to do stuff when the document is loaded (e.g poll the service every n'th second)
+* Provide out app javascript with the url to the service
+
+We already have the assets-folder in the model, but we need to provide the main.js-script with the url to out shiny new task-status-service, so first - lets add that to the model in ``taskSample.js``
+
+.taskSample.js
+[source,javascript]
+----
+  var model = {
+        assetsUrl: portal.assetUrl({path: ""}),
+        taskStatusServiceUrl: portal.serviceUrl({service: 'task-status-service'})
+    };
+----
+
+Now, in our view, we have all that we need:
+
+.taskSample.html
+[source,html]
+----
+  <!-- JQuery -->
+  <script src="{{assetsUrl}}/js/jquery-3.1.1.min.js"></script>
+  <!-- App js -->
+  <script src="{{assetsUrl}}/js/main.js"></script>
+
+  <script>
+     var taskStatusServiceUrl = '{{taskStatusServiceUrl}}';
+  </script>
+----
+
+Since we are rendering our page with mustache, its easy to declare the variable ``taskStatusServiceUrl`` in the scope available for our app javascript.
+
+Now, we can instruct the service to be invoked at a regular interval:
+
+.main.js
+[source.javascript]
+----
+$(function () {
+    setInterval(getTaskStatus, 1000);
+});
+
+var getTaskStatus = function () {
+
+    jQuery.ajax({
+        url: taskStatusServiceUrl,
+        cache: false,
+        type: 'GET',
+        success: function (result) {
+            renderProgress(result);
+        }
+    });
+};
+----
+
+
+
+
+

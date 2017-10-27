@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<tool xmlns="urn:enonic:xp:model:1.0">
+  <display-name>taskSample</display-name>
+  <description>Demonstrate the task lib and app-structure</description>
+  <allow>
+    <principal>role:system.admin</principal>
+    <principal>role:system.admin</principal>
+  </allow>
+</tool>
